@@ -9,10 +9,10 @@ The target must be your own device on a trusted local network.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
+from http.client import HTTPConnection, HTTPException
 import json
 import time
-import urllib.error
-import urllib.request
 
 MIB = 1024 * 1024
 
@@ -55,10 +55,10 @@ def main() -> None:
     except Exception as exc:
         print(f"NVIDIA telemetry unavailable ({exc}). GPU readings will be blank.")
 
-    url = f"http://{args.host}:80/api/metrics"
+    endpoint = "/api/metrics"
+    url = f"http://{args.host}{endpoint}"
     print(f"Sending to {url}. Press Ctrl+C to stop.")
     psutil.cpu_percent(interval=None)
-    lan = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
         while True:
             start = time.monotonic()
@@ -77,14 +77,10 @@ def main() -> None:
                 metrics.update(read_gpu(pynvml, gpu))
 
             body = json.dumps(metrics).encode("utf-8")
-            request = urllib.request.Request(
-                url,
-                data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
             try:
-                with lan.open(request, timeout=3) as response:
+                with closing(HTTPConnection(args.host, timeout=3)) as connection:
+                    connection.request("POST", endpoint, body, {"Content-Type": "application/json"})
+                    response = connection.getresponse()
                     if response.status != 200:
                         print(f"Unexpected HTTP status: {response.status}")
                     else:
@@ -97,7 +93,7 @@ def main() -> None:
                             )
                         )
                         print(values)
-            except (urllib.error.URLError, TimeoutError) as exc:
+            except (OSError, HTTPException) as exc:
                 print(f"Cannot reach cube: {exc}")
 
             time.sleep(max(0.0, args.period - (time.monotonic() - start)))

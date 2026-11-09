@@ -60,6 +60,10 @@ esptool --chip esp8266 --port COM3 --baud 115200 --before no-reset --after no-re
 
 ## Подключение ПК
 
+**Windows x64.** Скачайте [CubicOS-PC-Metrics-Windows-x64.exe](https://github.com/turbovanya/GeekMagic-CubicOS/releases/download/v0.5.1/CubicOS-PC-Metrics-Windows-x64.exe) и запустите двойным щелчком. Введите адрес с экрана **Device** на кубике и выберите **«Компьютер»** в Studio. Python для этого варианта не нужен. Чтобы остановить отправку, нажмите `Ctrl+C` или закройте окно.
+
+### Запуск через Python
+
 Выполните команды из корня репозитория. Здесь `192.168.1.50` — пример. Укажите адрес своего кубика.
 
 ```sh
@@ -70,6 +74,18 @@ python tools/pc_metrics.py --host 192.168.1.50
 В CubicOS Studio выберите экран **«Компьютер»**. По умолчанию данные обновляются каждые 1,5 секунды. Нажмите `Ctrl+C`, чтобы остановить передачу. Скрипт читает данные GPU через NVIDIA NVML. Если драйвер не отдаёт показание, на соответствующей карточке будет `--`. Занятая память отображается в ГиБ.
 
 Если отправитель уже запущен, перезапустите его с обновлённым `tools/pc_metrics.py`, чтобы передавать все шесть показаний. Старые отправители продолжают работать. Их значение RAM отображается в процентах.
+
+<details>
+<summary>Сборка EXE из исходников на Windows x64</summary>
+
+```powershell
+python -m pip install pyinstaller==6.22.3 psutil==7.2.2 nvidia-ml-py==13.615.71
+python -m PyInstaller --onefile --console --noupx --name CubicOS-PC-Metrics-Windows-x64 --distpath .pio/sender/dist --workpath .pio/sender/build --specpath .pio/sender tools/pc_metrics_windows.py
+```
+
+Готовый файл находится в `.pio/sender/dist/`. При запуске из PowerShell можно передать `--host` сразу. [Лицензии библиотек EXE](docs/pc-metrics-notices.txt)
+
+</details>
 
 ### Музыка и погода
 
