@@ -15,7 +15,7 @@
 #include <memory>
 #include "control_panel.h"
 
-constexpr char VERSION[]="0.5.0";
+constexpr char VERSION[]="0.5.1";
 
 namespace {
 constexpr uint8_t PIN_DC=0, PIN_RST=2, PIN_BL=5;
@@ -119,7 +119,11 @@ enum class WiFiTrial : uint8_t { Idle, Queued, Connecting, Saved, Failed };
 WiFiTrial wifiTrial=WiFiTrial::Idle;
 IPAddress lanIP;
 bool mdnsActive=false;
-struct Metrics{int cpu=-1,gpu=-1,ram=-1,gpuTemp=-1;uint32_t updated=0;} metrics;
+struct Metrics{
+  int cpu=-1,gpu=-1,ram=-1,gpuTemp=-1;
+  int vramMiB=-1,ramUsedMiB=-1,gpuPowerW=-1;
+  uint32_t updated=0;
+} metrics;
 struct Weather{
   char place[19]{};
   int16_t temperature=0;
@@ -160,11 +164,6 @@ void frame(const char* title){
   paint.page=page;
 }
 
-void bar(int x,int y,int width,int percent,uint16_t color){
-  lcd.fillRoundRect(x,y,width,10,4,TRACK);
-  if(percent>=0)lcd.fillRoundRect(x,y,max(4,width*min(100,percent)/100),10,4,color);
-}
-
 void renderClock(bool fresh){
   frame("CLOCK");time_t raw=paintTime;
   if(raw<1700000000){
@@ -202,40 +201,70 @@ void renderClock(bool fresh){
 }
 
 void renderMetrics(bool fresh){
-  frame("PC METRICS");
+  if(fresh){
+    lcd.fillScreen(BLACK);
+    paint.page=page;
+  }
   const bool valid=metrics.updated!=0&&paintMs-metrics.updated<=10000;
-  const bool layoutChanged=fresh||paint.metricsValid!=valid;
-  if(!fresh&&layoutChanged)lcd.fillRect(12,65,217,148,BLACK);
-  paint.metricsValid=valid;
-  if(!valid){
-    if(layoutChanged){
-      centered(91,"WAITING FOR PC",WHITE,2);
-      centered(139,"START PC FEED",accent2,2);
-    }
-    return;
-  }
-  struct Item{const char* label;int value;int previous;uint16_t color;};
-  const Item rows[]={
-    {"CPU",metrics.cpu,paint.metrics.cpu,accent},
-    {"GPU",metrics.gpu,paint.metrics.gpu,accent2},
-    {"RAM",metrics.ram,paint.metrics.ram,BLUE}
+  const bool statusChanged=fresh||paint.metricsValid!=valid;
+  if(statusChanged)lcd.fillRect(0,0,DISPLAY_SIZE,3,valid?accent2:TRACK);
+  const Metrics current=valid?metrics:Metrics{};
+  const bool ramInGiB=current.ramUsedMiB>=0;
+  const bool previousRamInGiB=paint.metrics.ramUsedMiB>=0;
+  struct Card{const char* label;const char* unit;int value;int previous;uint16_t color;bool memory=false;};
+  const Card cards[]={
+    {"GPU","%",current.gpu,paint.metrics.gpu,accent},
+    {"CPU","%",current.cpu,paint.metrics.cpu,accent2},
+    {"VRAM","GiB",current.vramMiB,paint.metrics.vramMiB,BLUE,true},
+    {"RAM",ramInGiB?"GiB":"%",ramInGiB?current.ramUsedMiB:current.ram,
+      previousRamInGiB?paint.metrics.ramUsedMiB:paint.metrics.ram,accent,ramInGiB},
+    {"POWER","W",current.gpuPowerW,paint.metrics.gpuPowerW,accent2},
+    {"TEMP","C",current.gpuTemp,paint.metrics.gpuTemp,BLUE},
   };
-  for(int i=0;i<3;i++){
-    const int y=59+i*47;
-    const Item& row=rows[i];
-    if(layoutChanged)textAt(18,y,row.label,WHITE,2);
-    if(layoutChanged||row.value!=row.previous){
-      lcd.fillRect(151,y,72,24,BLACK);
-      const String number=String(row.value)+"%";
-      textAt(223-int(number.length())*18,y,number,row.color,3);
-      bar(18,y+27,204,row.value,row.color);
+  for(int i=0;i<6;i++){
+    const int x=5+117*(i%2), y=8+77*(i/2);
+    const Card& card=cards[i];
+    const bool unitChanged=i==3&&ramInGiB!=previousRamInGiB;
+    if(fresh){
+      lcd.fillRoundRect(x,y,113,72,5,PANEL);
+      lcd.fillRect(x+6,y+26,101,2,card.color);
+      textAt(x+7,y+6,card.label,WHITE,2);
+    }
+    if(fresh||unitChanged){
+      if(unitChanged&&!fresh)lcd.fillRect(x+69,y+5,37,16,PANEL);
+      const String unit(card.unit);
+      textAt(x+106-int(unit.length())*12,y+6,unit,WHITE,2);
+    }
+    if(fresh||unitChanged||card.value!=card.previous){
+      lcd.fillRect(x+4,y+31,105,36,PANEL);
+      String number="--";
+      if(card.value>=0){
+        if(card.memory&&card.value<102400){
+          const int tenths=(card.value*10+512)/1024;
+          number=String(tenths/10)+"."+String(tenths%10);
+        }else{
+          number=String(card.memory?(card.value+512)/1024:card.value);
+        }
+      }
+      const int widthUnits=int(number.length())*6-(number.indexOf('.')>=0?4:0);
+      const int scale=min(5,105/widthUnits);
+      int cursor=x+(113-widthUnits*scale)/2;
+      lcd.setTextSize(scale);
+      lcd.setTextColor(card.value>=0?WHITE:0xBDF7);
+      for(char digit:number){
+        if(digit=='.'){
+          lcd.fillRect(cursor,y+32+6*scale,scale,scale,WHITE);
+          cursor+=2*scale;
+        }else{
+          lcd.setCursor(cursor,y+32);
+          lcd.write(digit);
+          cursor+=6*scale;
+        }
+      }
     }
   }
-  if(layoutChanged||metrics.gpuTemp!=paint.metrics.gpuTemp){
-    lcd.fillRect(18,197,204,16,BLACK);
-    centered(197,"GPU TEMP "+String(metrics.gpuTemp)+" C",WHITE);
-  }
-  paint.metrics=metrics;
+  paint.metrics=current;
+  paint.metricsValid=valid;
 }
 
 void renderAudio(bool fresh){
@@ -619,9 +648,32 @@ void setupWeb(){
   });
   web.on("/api/metrics",HTTP_POST,[]{
     JsonDocument doc;auto err=deserializeJson(doc,web.arg("plain"));if(err){web.send(400,"text/plain","Invalid JSON");return;}
-    int cpu=percent(doc["cpu"]),gpu=percent(doc["gpu"]),ram=percent(doc["ram"]),temp=percent(doc["gpu_temp"]);
-    if(cpu<0||gpu<0||ram<0||temp<0){web.send(400,"text/plain","Expected cpu,gpu,ram,gpu_temp 0..100");return;}
-    metrics={cpu,gpu,ram,temp,millis()};web.send(200,"text/plain","OK");
+    const JsonObjectConst data=doc.as<JsonObjectConst>();
+    Metrics next;
+    next.cpu=percent(data["cpu"]);
+    next.ram=percent(data["ram"]);
+    next.gpu=percent(data["gpu"]);
+    const JsonVariantConst temperature=data["gpu_temp"];
+    next.gpuTemp=temperature.is<int>()?constrain(temperature.as<int>(),0,150):-1;
+    if(next.cpu<0||next.ram<0||
+       (next.gpu<0&&!data["gpu"].isNull())||(next.gpuTemp<0&&!data["gpu_temp"].isNull())){
+      web.send(400,"text/plain","Expected cpu and ram percentages, and numeric or null GPU readings");return;
+    }
+    const auto readOptional=[data](const char* key,int limit,int& result){
+      const JsonVariantConst value=data[key];
+      if(value.isNull())return true;
+      if(!value.is<int>()||value.as<int>()<0||value.as<int>()>limit)return false;
+      result=value.as<int>();
+      return true;
+    };
+    if(!readOptional("vram_mib",1048576,next.vramMiB)||
+       !readOptional("ram_used_mib",1048576,next.ramUsedMiB)||
+       !readOptional("gpu_power_w",9999,next.gpuPowerW)){
+      web.send(400,"text/plain","Invalid memory or power reading");return;
+    }
+    next.updated=millis();
+    metrics=next;
+    web.send(200,"text/plain","OK");
   });
   web.on("/api/spectrum",HTTP_POST,[]{
     JsonDocument doc;if(deserializeJson(doc,web.arg("plain"))||!doc["bands"].is<JsonArray>()||doc["bands"].as<JsonArray>().size()!=16){web.send(400,"text/plain","Expected 16 bands array");return;}

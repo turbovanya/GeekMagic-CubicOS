@@ -5,14 +5,15 @@
 [Скачать прошивку](https://github.com/turbovanya/GeekMagic-CubicOS/releases/latest) · [Первый запуск](#первый-запуск) · [Подключить ПК](#подключение-пк) · [Разбор платы и источники](#разбор-платы-и-источники)
 
 <p align="center">
-  <img src="docs/clock.png" width="300" height="300" alt="Крупный циферблат CubicOS на экране 240 на 240">
-  <br><sub>Кадр, полученный с кубика через API дисплея</sub>
+  <img src="docs/clock.png" width="240" height="240" alt="Крупный циферблат CubicOS">
+  <img src="docs/pc-metrics.png" width="240" height="240" alt="Шесть карточек телеметрии ПК">
+  <br><sub>Кадры с кубика. На экране ПК показаны тестовые значения.</sub>
 </p>
 
 | Экран | Что показывает |
 | --- | --- |
 | **Часы** | Крупное время, дата и шкала секунд. Два варианта циферблата. |
-| **Компьютер** | Загрузку CPU, GPU и RAM, а также температуру видеокарты NVIDIA. |
+| **Компьютер** | Загрузку GPU и CPU, занятую VRAM и RAM, мощность и температуру GPU. |
 | **Музыка** | Спектр из 16 полос. Аудиофайл воспроизводится в браузере, кубик получает уровни частот. |
 | **Погода** | Текущую температуру, влажность и описание погоды от скрипта на ПК. |
 | **О кубике** | Версию прошивки, имя точки доступа, её пароль и локальный IP. |
@@ -23,7 +24,7 @@
 
 Эта сборка предназначена для **HelloCubic‑Lite с ESP8266, 4 МиБ Flash и ST7789 240 × 240**. Если на кубике уже стоит CubicOS, перейдите к [обновлению по Wi‑Fi](#обновление-по-wi-fi-ota).
 
-1. Скачайте файл `GeekMagic-CubicOS-0.5.0.bin` из [релиза v0.5.0](https://github.com/turbovanya/GeekMagic-CubicOS/releases/tag/v0.5.0) и установите [esptool 5](https://docs.espressif.com/projects/esptool/en/latest/esp8266/installation.html).
+1. Скачайте файл `GeekMagic-CubicOS-0.5.1.bin` из [релиза v0.5.1](https://github.com/turbovanya/GeekMagic-CubicOS/releases/tag/v0.5.1) и установите [esptool 5](https://docs.espressif.com/projects/esptool/en/latest/esp8266/installation.html).
 2. Найдите сигналы `TXD0`, `RXD0`, `GPIO0` и `GND` на своей ревизии платы. При отключённом питании подключите USB–UART с логикой **3,3 В**. Соедините земли, TX адаптера подключите к RX кубика, RX адаптера к TX кубика. Кубик запитайте через USB‑C, оставив вывод питания UART свободным.
 3. Для входа в загрузчик удерживайте `GPIO0` на земле при включении кубика. Затем отпустите `GPIO0` и выполните команды ниже. Замените `COM3` на свой порт. В Linux это может быть, например, `/dev/ttyUSB0`. [Режим загрузчика ESP8266](https://docs.espressif.com/projects/esptool/en/latest/esp8266/advanced-topics/boot-mode-selection.html)
 4. Сначала проверьте, что `flash-id` определяет **4 MB**, и прочитайте полную резервную копию. Проверьте, что файл копии имеет размер **4 194 304 байта**, прежде чем переходить к записи.
@@ -36,8 +37,8 @@ esptool --chip esp8266 --port COM3 --baud 115200 --before no-reset --after no-re
 После проверки резервной копии запишите прошивку и проверьте запись. [Команды esptool](https://docs.espressif.com/projects/esptool/en/latest/esp8266/esptool/basic-commands.html)
 
 ```sh
-esptool --chip esp8266 --port COM3 --baud 115200 --before no-reset --after no-reset-stub write-flash 0x0 GeekMagic-CubicOS-0.5.0.bin
-esptool --chip esp8266 --port COM3 --baud 115200 --before no-reset --after no-reset-stub verify-flash 0x0 GeekMagic-CubicOS-0.5.0.bin
+esptool --chip esp8266 --port COM3 --baud 115200 --before no-reset --after no-reset-stub write-flash 0x0 GeekMagic-CubicOS-0.5.1.bin
+esptool --chip esp8266 --port COM3 --baud 115200 --before no-reset --after no-reset-stub verify-flash 0x0 GeekMagic-CubicOS-0.5.1.bin
 ```
 
 Снимите перемычку `GPIO0 → GND`, если она ещё подключена, и перезапустите кубик через USB‑C. Резервная копия может содержать настройки вашей сети, поэтому храните её локально.
@@ -66,7 +67,9 @@ python -m pip install psutil nvidia-ml-py
 python tools/pc_metrics.py --host 192.168.1.50
 ```
 
-В CubicOS Studio выберите экран **«Компьютер»**. По умолчанию данные обновляются каждые 1,5 секунды, пока скрипт работает. Нажмите `Ctrl+C`, чтобы остановить передачу. GPU и его температура читаются через NVIDIA NVML. Если NVML недоступна, скрипт передаёт CPU и RAM, а поля GPU показывает как нулевые.
+В CubicOS Studio выберите экран **«Компьютер»**. По умолчанию данные обновляются каждые 1,5 секунды. Нажмите `Ctrl+C`, чтобы остановить передачу. Скрипт читает данные GPU через NVIDIA NVML. Если драйвер не отдаёт показание, на соответствующей карточке будет `--`. Занятая память отображается в ГиБ.
+
+Если отправитель уже запущен, перезапустите его с обновлённым `tools/pc_metrics.py`, чтобы передавать все шесть показаний. Старые отправители продолжают работать. Их значение RAM отображается в процентах.
 
 ### Музыка и погода
 
@@ -96,7 +99,7 @@ pio run
 | --- | --- | --- |
 | `/api/status` | GET | Версия, MD5 прошивки, активный экран, время работы и состояние сети |
 | `/api/page` | POST | Поле формы `page` от 0 до 4 |
-| `/api/metrics` | POST | JSON с `cpu`, `gpu`, `ram` и `gpu_temp`, целые числа от 0 до 100 |
+| `/api/metrics` | POST | JSON с `cpu`, `gpu`, `ram` (%) и `gpu_temp` (°C). Дополнительно `vram_mib`, `ram_used_mib` и `gpu_power_w`. Для недоступных показаний GPU передайте `null`. |
 | `/api/spectrum` | POST | JSON с массивом `bands` из 16 целых чисел от 0 до 100 |
 | `/api/weather` | POST | JSON с `place`, `temperature` (°C), `humidity` (%) и `code` (WMO) |
 | `/debug/screen.bmp` | GET | Кадр 240 × 240. Пароль точки доступа скрыт. |
@@ -110,6 +113,7 @@ pio run
 ## Разбор платы и источники
 
 - **Times‑Z / GeekMagic‑Open‑Firmware** — проект, в котором разобрали HelloCubic‑Lite, исследовали подключение ST7789 и задокументировали параметры SPI и последовательность запуска дисплея. Эти материалы использованы при разработке драйвера CubicOS. [Репозиторий](https://github.com/Times-Z/GeekMagic-Open-Firmware) · [Разбор и описание дисплея](https://github.com/Times-Z/GeekMagic-Open-Firmware/blob/develop/readme.md#screen-hardware-configuration)
+- Компоновка PC Metrics вдохновлена панелью системных показателей из [Times‑Z / GeekMagic‑Open‑Firmware #32](https://github.com/Times-Z/GeekMagic-Open-Firmware/pull/32).
 - **GeekMagicClock / HelloCubic‑Lite** — руководство и заводские прошивки производителя. [Официальный репозиторий](https://github.com/GeekMagicClock/HelloCubic-Lite)
 
 Лицензия проекта — [GPL‑3.0](LICENSE).

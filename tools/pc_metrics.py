@@ -14,6 +14,25 @@ import time
 import urllib.error
 import urllib.request
 
+MIB = 1024 * 1024
+
+
+def read_gpu(nvml, device):
+    def read(measure):
+        try:
+            return measure()
+        except nvml.NVMLError:
+            return None
+
+    used = read(lambda: nvml.nvmlDeviceGetMemoryInfo(device).used)
+    power = read(lambda: nvml.nvmlDeviceGetPowerUsage(device))
+    return {
+        "gpu": read(lambda: nvml.nvmlDeviceGetUtilizationRates(device).gpu),
+        "gpu_temp": read(lambda: nvml.nvmlDeviceGetTemperature(device, nvml.NVML_TEMPERATURE_GPU)),
+        "vram_mib": round(used / MIB) if used is not None and 0 <= used <= 1048576 * MIB else None,
+        "gpu_power_w": round(power / 1000) if power is not None and 0 <= power <= 9999000 else None,
+    }
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="GeekMagic OS PC telemetry sender")
@@ -26,31 +45,37 @@ def main() -> None:
 
     import psutil  # pip install psutil
 
+    gpu = None
+    nvml_initialized = False
     try:
         import pynvml  # nvidia-ml-py
         pynvml.nvmlInit()
+        nvml_initialized = True
         gpu = pynvml.nvmlDeviceGetHandleByIndex(0)
     except Exception as exc:
-        gpu = None
-        print(f"NVIDIA telemetry unavailable ({exc}). Sending 0 for GPU values.")
+        print(f"NVIDIA telemetry unavailable ({exc}). GPU readings will be blank.")
 
     url = f"http://{args.host}:80/api/metrics"
     print(f"Sending to {url}. Press Ctrl+C to stop.")
     psutil.cpu_percent(interval=None)
+    lan = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
         while True:
             start = time.monotonic()
             cpu = int(round(psutil.cpu_percent(interval=0.2)))
-            ram = int(round(psutil.virtual_memory().percent))
-            gpu_usage = gpu_temp = 0
+            memory = psutil.virtual_memory()
+            metrics = {
+                "cpu": cpu,
+                "ram": round(memory.percent),
+                "ram_used_mib": round((memory.total - memory.available) / MIB),
+                "gpu": None,
+                "gpu_temp": None,
+                "vram_mib": None,
+                "gpu_power_w": None,
+            }
             if gpu is not None:
-                try:
-                    gpu_usage = int(pynvml.nvmlDeviceGetUtilizationRates(gpu).gpu)
-                    gpu_temp = int(pynvml.nvmlDeviceGetTemperature(gpu, pynvml.NVML_TEMPERATURE_GPU))
-                except Exception as exc:
-                    print(f"GPU read failed: {exc}")
+                metrics.update(read_gpu(pynvml, gpu))
 
-            metrics = {"cpu": cpu, "gpu": gpu_usage, "ram": ram, "gpu_temp": gpu_temp}
             body = json.dumps(metrics).encode("utf-8")
             request = urllib.request.Request(
                 url,
@@ -59,11 +84,19 @@ def main() -> None:
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(request, timeout=3) as response:
+                with lan.open(request, timeout=3) as response:
                     if response.status != 200:
                         print(f"Unexpected HTTP status: {response.status}")
                     else:
-                        print("CPU {cpu:>3}% · GPU {gpu:>3}% · RAM {ram:>3}% · GPU {gpu_temp:>2}°C".format(**metrics))
+                        values = " · ".join(
+                            f"{label} {metrics[key]}{unit}" if metrics[key] is not None else f"{label} --"
+                            for key, label, unit in (
+                                ("cpu", "CPU", "%"), ("gpu", "GPU", "%"),
+                                ("ram_used_mib", "RAM", " MiB"), ("vram_mib", "VRAM", " MiB"),
+                                ("gpu_power_w", "Power", " W"), ("gpu_temp", "Temp", " C"),
+                            )
+                        )
+                        print(values)
             except (urllib.error.URLError, TimeoutError) as exc:
                 print(f"Cannot reach cube: {exc}")
 
@@ -71,7 +104,7 @@ def main() -> None:
     except KeyboardInterrupt:
         print("Stopped.")
     finally:
-        if gpu is not None:
+        if nvml_initialized:
             pynvml.nvmlShutdown()
 
 
