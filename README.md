@@ -1,48 +1,115 @@
 # GeekMagic CubicOS
 
-CubicOS is community firmware for the **GeekMagic HelloCubic-Lite** with an ESP8266, 4 MiB of flash and a 240×240 ST7789 display viewed through a prism.
+**Открытая прошивка для GeekMagic HelloCubic‑Lite с экраном 240 × 240 и оптической призмой.** Кубик показывает время, нагрузку ПК, музыкальный спектр и погоду. Экранами и оформлением можно управлять из браузера в локальной сети.
 
-- Large clock and date with two faces, PC telemetry, a 16-band audio visualizer, current weather and device information.
-- CubicOS Studio controls the screen and saves a palette, brightness, UTC offset and screen rotation interval. The preview fetches a frame from the cube.
-- The setup access point can scan for 2.4 GHz networks. The cube saves new network credentials after connecting successfully.
-- Firmware updates use the password-protected `/update` page and preserve stored Wi-Fi credentials and display settings.
+[Скачать прошивку](https://github.com/turbovanya/GeekMagic-CubicOS/releases/latest) · [Первый запуск](#первый-запуск) · [Подключить ПК](#подключение-пк) · [Разбор платы и источники](#разбор-платы-и-источники)
 
-## Build and install
+<p align="center">
+  <img src="docs/clock.png" width="300" height="300" alt="Крупный циферблат CubicOS на экране 240 на 240">
+  <br><sub>Кадр, полученный с кубика через API дисплея</sub>
+</p>
+
+| Экран | Что показывает |
+| --- | --- |
+| **Часы** | Крупное время, дата и шкала секунд. Два варианта циферблата. |
+| **Компьютер** | Загрузку CPU, GPU и RAM, а также температуру видеокарты NVIDIA. |
+| **Музыка** | Спектр из 16 полос. Аудиофайл воспроизводится в браузере, кубик получает уровни частот. |
+| **Погода** | Текущую температуру, влажность и описание погоды от скрипта на ПК. |
+| **О кубике** | Версию прошивки, имя точки доступа, её пароль и локальный IP. |
+
+В **CubicOS Studio** можно выбрать одну из четырёх палитр, настроить яркость и автосмену экранов, задать смещение от UTC и снять кадр с дисплея.
+
+## Первый запуск
+
+Эта сборка предназначена для **HelloCubic‑Lite с ESP8266, 4 МиБ Flash и ST7789 240 × 240**. Если на кубике уже стоит CubicOS, перейдите к [обновлению по Wi‑Fi](#обновление-по-wi-fi-ota).
+
+1. Скачайте файл `GeekMagic-CubicOS-0.5.0.bin` из [релиза v0.5.0](https://github.com/turbovanya/GeekMagic-CubicOS/releases/tag/v0.5.0) и установите [esptool 5](https://docs.espressif.com/projects/esptool/en/latest/esp8266/installation.html).
+2. Найдите сигналы `TXD0`, `RXD0`, `GPIO0` и `GND` на своей ревизии платы. При отключённом питании подключите USB–UART с логикой **3,3 В**. Соедините земли, TX адаптера подключите к RX кубика, RX адаптера к TX кубика. Кубик запитайте через USB‑C, оставив вывод питания UART свободным.
+3. Для входа в загрузчик удерживайте `GPIO0` на земле при включении кубика. Затем отпустите `GPIO0` и выполните команды ниже. Замените `COM3` на свой порт. В Linux это может быть, например, `/dev/ttyUSB0`. [Режим загрузчика ESP8266](https://docs.espressif.com/projects/esptool/en/latest/esp8266/advanced-topics/boot-mode-selection.html)
+4. Сначала проверьте, что `flash-id` определяет **4 MB**, и прочитайте полную резервную копию. Проверьте, что файл копии имеет размер **4 194 304 байта**, прежде чем переходить к записи.
 
 ```sh
+esptool --chip esp8266 --port COM3 --baud 115200 --before no-reset --after no-reset --no-stub flash-id
+esptool --chip esp8266 --port COM3 --baud 115200 --before no-reset --after no-reset-stub read-flash 0x0 0x400000 hellocubic-backup.bin
+```
+
+После проверки резервной копии запишите прошивку и проверьте запись. [Команды esptool](https://docs.espressif.com/projects/esptool/en/latest/esp8266/esptool/basic-commands.html)
+
+```sh
+esptool --chip esp8266 --port COM3 --baud 115200 --before no-reset --after no-reset-stub write-flash 0x0 GeekMagic-CubicOS-0.5.0.bin
+esptool --chip esp8266 --port COM3 --baud 115200 --before no-reset --after no-reset-stub verify-flash 0x0 GeekMagic-CubicOS-0.5.0.bin
+```
+
+Снимите перемычку `GPIO0 → GND`, если она ещё подключена, и перезапустите кубик через USB‑C. Резервная копия может содержать настройки вашей сети, поэтому храните её локально.
+
+### Настройка домашней сети
+
+1. На дисплее найдите имя точки доступа `CubicOS-…` и её пароль. Подключитесь к этой сети с телефона или ПК.
+2. Откройте [настройку Wi‑Fi](http://192.168.4.1/wifi). Для входа используйте `admin` и пароль точки доступа с дисплея.
+3. Нажмите **«Найти сети»**, выберите домашнюю сеть **2,4 ГГц** и введите её пароль. Для скрытой сети введите имя вручную.
+4. После подключения переключите ПК или телефон обратно на домашнюю сеть. Откройте IP, показанный на экране **Device**, или используйте имя `cubicos-<id>.local`, если в вашей сети работает mDNS.
+
+Для настройки часов откройте **«Конструктор оформления»** в CubicOS Studio и задайте смещение от UTC в минутах. Например, для UTC+3 это `180`.
+
+### Обновление по Wi-Fi (OTA)
+
+1. Скачайте BIN для HelloCubic‑Lite из [релизов](https://github.com/turbovanya/GeekMagic-CubicOS/releases).
+2. В панели кубика выберите **«Обновить прошивку»** или откройте `/update` по его локальному адресу. Войдите как `admin` с паролем точки доступа CubicOS.
+3. Выберите BIN в поле **Firmware** и дождитесь перезапуска. Кубик подхватит сохранённые настройки сети и дисплея. Проверьте версию на главной странице Studio или в `/api/status`.
+
+## Подключение ПК
+
+Выполните команды из корня репозитория. Здесь `192.168.1.50` — пример. Укажите адрес своего кубика.
+
+```sh
+python -m pip install psutil nvidia-ml-py
+python tools/pc_metrics.py --host 192.168.1.50
+```
+
+В CubicOS Studio выберите экран **«Компьютер»**. По умолчанию данные обновляются каждые 1,5 секунды, пока скрипт работает. Нажмите `Ctrl+C`, чтобы остановить передачу. GPU и его температура читаются через NVIDIA NVML. Если NVML недоступна, скрипт передаёт CPU и RAM, а поля GPU показывает как нулевые.
+
+### Музыка и погода
+
+Для спектра выберите аудиофайл в Studio и нажмите воспроизведение. Для погоды запустите скрипт ниже. Подставьте адрес кубика и координаты нужного места. Название на дисплее задаётся латиницей.
+
+```sh
+python tools/weather_feed.py --host 192.168.1.50 --latitude 52.52 --longitude 13.41 --label Berlin
+```
+
+Скрипт получает данные у Open‑Meteo и передаёт их кубику по локальной сети. Для коммерческого использования погодного сервиса действуют условия поставщика. [Условия Open‑Meteo](https://open-meteo.com/en/terms)
+
+## Сборка из исходников
+
+```sh
+git clone https://github.com/turbovanya/GeekMagic-CubicOS.git
+cd GeekMagic-CubicOS
 python -m pip install platformio==6.1.19
 pio run
 ```
 
-The build writes `.pio/build/hellocubic_lite/firmware.bin`. On a cube already running CubicOS, use **Firmware** on `/update`. The username is `admin` and the password is the one shown on the cube. For first installation, confirm the chip and 4 MiB flash size, back up the full flash using esptool, then write the image at offset `0x0` in the ESP8266 serial bootloader. This image targets the HelloCubic-Lite hardware listed above.
+Готовый образ находится в `.pio/build/hellocubic_lite/firmware.bin`. Этот же файл подходит для UART по адресу `0x0` и для OTA в поле **Firmware**.
 
-The cube shows its `CubicOS-…` access-point name and password on the display when it needs setup. Connect to it and open [Wi-Fi setup](http://192.168.4.1/wifi). Choose a network and wait for the LAN address. The **Device** screen shows the LAN IP, and `/api/status` reports the version, firmware digest and local hostname.
+<details>
+<summary>Локальное API</summary>
 
-## Studio and feeds
+| Путь | Метод | Данные |
+| --- | --- | --- |
+| `/api/status` | GET | Версия, MD5 прошивки, активный экран, время работы и состояние сети |
+| `/api/page` | POST | Поле формы `page` от 0 до 4 |
+| `/api/metrics` | POST | JSON с `cpu`, `gpu`, `ram` и `gpu_temp`, целые числа от 0 до 100 |
+| `/api/spectrum` | POST | JSON с массивом `bands` из 16 целых чисел от 0 до 100 |
+| `/api/weather` | POST | JSON с `place`, `temperature` (°C), `humidity` (%) и `code` (WMO) |
+| `/debug/screen.bmp` | GET | Кадр 240 × 240. Пароль точки доступа скрыт. |
 
-Open the cube's home page and choose **Открыть конструктор**. The access-point credentials also protect changes in Studio. Set the UTC offset in minutes for your location. To run the music visualizer, select an audio file in the browser and play it. The browser sends 16 frequency levels, and audio playback stays on your computer.
+</details>
 
-Use the bundled PC and weather feeds from another computer on the LAN.
+Прошивка рассчитана на доверенную локальную сеть. Настройки и обновление защищены HTTP Basic, управление экраном и приём данных доступны из локальной сети.
 
-```sh
-python -m pip install psutil nvidia-ml-py
-python tools/pc_metrics.py --host CUBE_IP
-python tools/weather_feed.py --host CUBE_IP --latitude 52.52 --longitude 13.41 --label Berlin
-```
+Версия 0.5.0 проверена на одном HelloCubic‑Lite. На устройстве проверены OTA, сохранение сети и оформления после перезапуска, поиск Wi‑Fi, захват кадра, метрики ПК и спектр из браузера. Экран погоды проверен на тестовых данных. Подключение к другим роутерам и аппаратным ревизиям требует дополнительной проверки.
 
-Replace the sample location with yours. Weather data comes from [Open-Meteo](https://open-meteo.com/). Check its [terms](https://open-meteo.com/en/terms) before using the bundled feed commercially. Any compatible local producer can post data directly to CubicOS.
+## Разбор платы и источники
 
-| Route | Method | Data |
-|---|---|---|
-| `/api/status` | GET | Version, firmware MD5, page, uptime and network state |
-| `/api/page` | POST | Form field `page`, 0–4 |
-| `/api/metrics` | POST | JSON with `cpu`, `gpu`, `ram` and `gpu_temp`, integers 0–100 |
-| `/api/spectrum` | POST | JSON with `bands`, 16 integers 0–100 |
-| `/api/weather` | POST | JSON with `place`, `temperature` (°C), `humidity` (%) and `code` (WMO) |
-| `/debug/screen.bmp` | GET | 240×240 logical frame with the access-point password omitted |
+- **Times‑Z / GeekMagic‑Open‑Firmware** — проект, в котором разобрали HelloCubic‑Lite, исследовали подключение ST7789 и задокументировали параметры SPI и последовательность запуска дисплея. Эти материалы использованы при разработке драйвера CubicOS. [Репозиторий](https://github.com/Times-Z/GeekMagic-Open-Firmware) · [Разбор и описание дисплея](https://github.com/Times-Z/GeekMagic-Open-Firmware/blob/develop/readme.md#screen-hardware-configuration)
+- **GeekMagicClock / HelloCubic‑Lite** — руководство и заводские прошивки производителя. [Официальный репозиторий](https://github.com/GeekMagicClock/HelloCubic-Lite)
 
-CubicOS is designed for a trusted local network. The firmware and settings routes use HTTP Basic authentication, and the device controls and data feeds are accessible on the LAN.
-
-Version 0.5.0 was tested on one HelloCubic-Lite. Checks covered OTA, Wi-Fi scanning, Studio settings, display capture, PC telemetry, browser audio and sample weather data. The cube's first-time connection to a new router still needs testing across hardware and router revisions.
-
-The display initialization is based on the hardware work documented by [Times-Z/GeekMagic-Open-Firmware](https://github.com/Times-Z/GeekMagic-Open-Firmware). See [LICENSE](LICENSE) for GPL-3.0 terms.
+Лицензия проекта — [GPL‑3.0](LICENSE).
